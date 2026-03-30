@@ -1,0 +1,13 @@
+app:
+  host: "0.0.0.0"
+  port: 8000
+  go2rtc_port: 1984
+
+streams:
+  # Example:
+  # camera1:
+  #   name: "Front Door"
+  #   url: "rtsp://user:pass@192.168.1.100:554/stream1"
+  # camera2:
+  #   name: "Backyard"
+  #   url: "rtsp://user:pass@192.168.1.101:554/stream1"

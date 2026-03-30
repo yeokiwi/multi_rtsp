@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-RTSP Viewer</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header>
+        <h1>RTSP Stream Viewer</h1>
+        <button id="settings-btn" title="Settings">&#9881; Settings</button>
+    </header>
+
+    <main id="stream-grid">
+        <div id="empty-state">
+            <p>No streams configured.</p>
+            <p>Click <strong>Settings</strong> to add RTSP streams.</p>
+        </div>
+    </main>
+
+    <aside id="settings-panel" class="hidden">
+        <div class="settings-header">
+            <h2>Stream Settings</h2>
+            <button id="settings-close" title="Close">&times;</button>
+        </div>
+        <div class="settings-body">
+            <button id="add-stream-btn" class="btn-primary">+ Add Stream</button>
+            <div id="stream-form" class="hidden">
+                <h3 id="form-title">Add Stream</h3>
+                <label for="stream-name">Name</label>
+                <input type="text" id="stream-name" placeholder="e.g. Front Door">
+                <label for="stream-url">RTSP URL</label>
+                <input type="text" id="stream-url" placeholder="rtsp://user:pass@192.168.1.100:554/stream">
+                <div class="form-error hidden" id="form-error"></div>
+                <div class="form-actions">
+                    <button id="form-save" class="btn-primary">Save</button>
+                    <button id="form-cancel" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+            <div id="stream-list"></div>
+        </div>
+    </aside>
+
+    <div id="overlay" class="hidden"></div>
+
+    <script src="/static/js/webrtc-player.js"></script>
+    <script src="/static/js/settings.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

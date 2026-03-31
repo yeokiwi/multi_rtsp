@@ -64,10 +64,21 @@ class WebRTCPlayer {
             });
 
             if (!response.ok) {
-                throw new Error(`Signaling failed: ${response.status}`);
+                const detail = await response.text();
+                throw new Error(`Signaling failed (${response.status}): ${detail}`);
             }
 
-            const answerSdp = await response.text();
+            // go2rtc may return raw SDP or JSON {"type":"answer","sdp":"..."}
+            const answerText = await response.text();
+            let answerSdp;
+            try {
+                const parsed = JSON.parse(answerText);
+                answerSdp = parsed.sdp || answerText;
+            } catch {
+                // Not JSON — treat as raw SDP
+                answerSdp = answerText;
+            }
+
             await this.pc.setRemoteDescription(new RTCSessionDescription({
                 type: "answer",
                 sdp: answerSdp,

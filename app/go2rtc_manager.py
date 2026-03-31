@@ -20,7 +20,7 @@ class Go2RTCManager:
         self._process: asyncio.subprocess.Process | None = None
         self._config_file: str | None = None
         self._log_tasks: list[asyncio.Task] = []
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = httpx.AsyncClient(timeout=30.0)
 
     async def start(self):
         if not os.path.exists(self.binary_path):
@@ -134,12 +134,29 @@ class Go2RTCManager:
             pass
         return {}
 
-    async def webrtc_offer(self, stream_id: str, offer: str, content_type: str) -> httpx.Response:
+    async def webrtc_offer(self, stream_id: str, sdp_offer: str) -> httpx.Response:
+        # go2rtc v1.9+ accepts JSON format for WebRTC signaling
+        # Try JSON first, fall back to raw SDP if it fails
+        try:
+            import json
+            json_body = json.dumps({"type": "offer", "sdp": sdp_offer})
+            resp = await self._client.post(
+                f"{self.base_url}/api/webrtc",
+                params={"src": stream_id},
+                content=json_body,
+                headers={"Content-Type": "application/json"},
+            )
+            if resp.status_code == 200:
+                return resp
+        except Exception:
+            pass
+
+        # Fallback: raw SDP format (older go2rtc versions)
         return await self._client.post(
             f"{self.base_url}/api/webrtc",
             params={"src": stream_id},
-            content=offer,
-            headers={"Content-Type": content_type},
+            content=sdp_offer,
+            headers={"Content-Type": "application/sdp"},
         )
 
     def is_running(self) -> bool:

@@ -65,6 +65,13 @@ class WebRTCPlayer {
 
             if (!response.ok) {
                 const detail = await response.text();
+                if (response.status === 503) {
+                    // go2rtc is restarting — retry silently
+                    console.log(`[WebRTCPlayer:${this.streamId}] go2rtc restarting, will retry...`);
+                    this._closePeerConnection();
+                    this._scheduleReconnect();
+                    return;
+                }
                 throw new Error(`Signaling failed (${response.status}): ${detail}`);
             }
 

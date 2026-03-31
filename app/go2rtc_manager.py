@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import os
-import signal
+import sys
 import tempfile
 
 import httpx
@@ -70,7 +70,8 @@ class Go2RTCManager:
     async def stop(self):
         """Stop the go2rtc process."""
         if self._process and self._process.returncode is None:
-            self._process.send_signal(signal.SIGTERM)
+            # Use terminate() for cross-platform compatibility (Windows + Unix)
+            self._process.terminate()
             try:
                 await asyncio.wait_for(self._process.wait(), timeout=5.0)
             except asyncio.TimeoutError:
@@ -105,7 +106,9 @@ class Go2RTCManager:
                 if resp.status_code == 200:
                     logger.info("go2rtc is ready (streams: %s)", list(resp.json().keys()))
                     return
-            except httpx.ConnectError:
+            except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
+                # ConnectError: go2rtc not listening yet
+                # ReadError/RemoteProtocolError: stale connection from before restart
                 pass
             await asyncio.sleep(interval)
             elapsed += interval

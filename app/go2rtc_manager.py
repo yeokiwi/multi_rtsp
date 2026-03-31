@@ -107,24 +107,29 @@ class Go2RTCManager:
         for sid, url in streams.items():
             await self.add_stream(sid, url)
 
+        # Verify registration
+        status = await self.get_streams_status()
+        logger.info("go2rtc streams after sync: %s", list(status.keys()))
+
     async def add_stream(self, stream_id: str, url: str):
         try:
-            # go2rtc API: PUT /api/streams?src={name} with RTSP URL in body
+            # go2rtc API: PUT /api/streams?name={stream_name}&src={source_url}
             resp = await self._client.put(
                 f"{self.base_url}/api/streams",
-                params={"src": stream_id},
-                content=url,
+                params={"name": stream_id, "src": url},
             )
             logger.info("Added stream '%s' -> %s (status: %d)", stream_id, url, resp.status_code)
+            if resp.status_code != 200:
+                logger.warning("go2rtc response: %s", resp.text)
         except Exception as e:
             logger.error("Failed to add stream %s: %s", stream_id, e)
 
     async def remove_stream(self, stream_id: str):
         try:
-            # go2rtc API: DELETE /api/streams?src={name}
+            # go2rtc API: DELETE /api/streams?name={stream_name}
             await self._client.delete(
                 f"{self.base_url}/api/streams",
-                params={"src": stream_id},
+                params={"name": stream_id},
             )
         except Exception as e:
             logger.error("Failed to remove stream %s: %s", stream_id, e)

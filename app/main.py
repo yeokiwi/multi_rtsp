@@ -38,18 +38,18 @@ async def lifespan(app: FastAPI):
 
     go2rtc_mgr = Go2RTCManager(str(binary_path), api_port=app_config.go2rtc_port)
 
+    # Start go2rtc with streams baked into its config file
+    configured_streams = config_mgr.get_streams()
+    stream_urls = {sid: s.url for sid, s in configured_streams.items()}
+
     try:
-        await go2rtc_mgr.start()
+        await go2rtc_mgr.start(stream_urls)
     except FileNotFoundError as e:
         logger.error(str(e))
         logger.error("Please run: python setup_go2rtc.py")
         raise SystemExit(1)
 
-    # Sync configured streams to go2rtc
-    configured_streams = config_mgr.get_streams()
-    stream_urls = {sid: s.url for sid, s in configured_streams.items()}
-    await go2rtc_mgr.sync_streams(stream_urls)
-    logger.info("Synced %d stream(s) to go2rtc", len(stream_urls))
+    logger.info("Started with %d stream(s)", len(stream_urls))
 
     # Store managers in app state
     app.state.config_mgr = config_mgr
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    await go2rtc_mgr.stop()
+    await go2rtc_mgr.cleanup()
     logger.info("Shutdown complete")
 
 

@@ -1,4 +1,4 @@
-"""Manages the go2rtc subprocess lifecycle and its REST API."""
+"""Manages the go2rtc subprocess lifecycle via config file."""
 
 import asyncio
 import logging
@@ -22,21 +22,36 @@ class Go2RTCManager:
         self._log_tasks: list[asyncio.Task] = []
         self._client = httpx.AsyncClient(timeout=30.0)
 
-    async def start(self):
+    def _write_config(self, streams: dict[str, str]):
+        """Write go2rtc YAML config with ports and stream definitions."""
+        go2rtc_config = {
+            "api": {"listen": f":{self.api_port}"},
+            "webrtc": {"listen": ":8555"},
+        }
+        if streams:
+            go2rtc_config["streams"] = streams
+
+        if self._config_file and os.path.exists(self._config_file):
+            # Reuse existing temp file
+            with open(self._config_file, "w") as f:
+                yaml.dump(go2rtc_config, f, default_flow_style=False)
+        else:
+            fd, self._config_file = tempfile.mkstemp(suffix=".yaml", prefix="go2rtc_")
+            with os.fdopen(fd, "w") as f:
+                yaml.dump(go2rtc_config, f, default_flow_style=False)
+
+        logger.info("Wrote go2rtc config with %d stream(s): %s",
+                     len(streams), list(streams.keys()))
+
+    async def start(self, streams: dict[str, str] | None = None):
+        """Start go2rtc with the given streams baked into the config."""
         if not os.path.exists(self.binary_path):
             raise FileNotFoundError(
                 f"go2rtc binary not found at {self.binary_path}. "
                 "Run 'python setup_go2rtc.py' to download it."
             )
 
-        # Generate minimal config for go2rtc (ports only, streams via API)
-        go2rtc_config = {
-            "api": {"listen": f":{self.api_port}"},
-            "webrtc": {"listen": ":8555"},
-        }
-        fd, self._config_file = tempfile.mkstemp(suffix=".yaml", prefix="go2rtc_")
-        with os.fdopen(fd, "w") as f:
-            yaml.dump(go2rtc_config, f)
+        self._write_config(streams or {})
 
         self._process = await asyncio.create_subprocess_exec(
             self.binary_path, "-config", self._config_file,
@@ -45,7 +60,6 @@ class Go2RTCManager:
         )
         logger.info("go2rtc started (PID: %d)", self._process.pid)
 
-        # Background tasks to log go2rtc output
         self._log_tasks = [
             asyncio.create_task(self._pipe_log(self._process.stdout, "go2rtc")),
             asyncio.create_task(self._pipe_log(self._process.stderr, "go2rtc")),
@@ -53,22 +67,8 @@ class Go2RTCManager:
 
         await self._wait_ready()
 
-    async def _wait_ready(self, timeout: float = 15.0):
-        elapsed = 0.0
-        interval = 0.3
-        while elapsed < timeout:
-            try:
-                resp = await self._client.get(f"{self.base_url}/api/streams")
-                if resp.status_code == 200:
-                    logger.info("go2rtc is ready")
-                    return
-            except httpx.ConnectError:
-                pass
-            await asyncio.sleep(interval)
-            elapsed += interval
-        raise TimeoutError("go2rtc did not become ready in time")
-
     async def stop(self):
+        """Stop the go2rtc process."""
         if self._process and self._process.returncode is None:
             self._process.send_signal(signal.SIGTERM)
             try:
@@ -82,57 +82,34 @@ class Go2RTCManager:
             task.cancel()
         self._log_tasks.clear()
 
+    async def restart(self, streams: dict[str, str]):
+        """Restart go2rtc with updated stream definitions."""
+        logger.info("Restarting go2rtc with %d stream(s)...", len(streams))
+        await self.stop()
+        await self.start(streams)
+
+    async def cleanup(self):
+        """Stop go2rtc and clean up temp files."""
+        await self.stop()
         if self._config_file and os.path.exists(self._config_file):
             os.unlink(self._config_file)
             self._config_file = None
-
         await self._client.aclose()
 
-    async def sync_streams(self, streams: dict[str, str]):
-        """Sync stream definitions to go2rtc. streams = {id: rtsp_url}."""
-        # Get current streams in go2rtc
-        try:
-            resp = await self._client.get(f"{self.base_url}/api/streams")
-            current = set(resp.json().keys()) if resp.status_code == 200 else set()
-        except Exception:
-            current = set()
-
-        desired = set(streams.keys())
-
-        # Remove streams no longer in config
-        for sid in current - desired:
-            await self.remove_stream(sid)
-
-        # Add/update streams
-        for sid, url in streams.items():
-            await self.add_stream(sid, url)
-
-        # Verify registration
-        status = await self.get_streams_status()
-        logger.info("go2rtc streams after sync: %s", list(status.keys()))
-
-    async def add_stream(self, stream_id: str, url: str):
-        try:
-            # go2rtc API: PUT /api/streams?name={stream_name}&src={source_url}
-            resp = await self._client.put(
-                f"{self.base_url}/api/streams",
-                params={"name": stream_id, "src": url},
-            )
-            logger.info("Added stream '%s' -> %s (status: %d)", stream_id, url, resp.status_code)
-            if resp.status_code != 200:
-                logger.warning("go2rtc response: %s", resp.text)
-        except Exception as e:
-            logger.error("Failed to add stream %s: %s", stream_id, e)
-
-    async def remove_stream(self, stream_id: str):
-        try:
-            # go2rtc API: DELETE /api/streams?name={stream_name}
-            await self._client.delete(
-                f"{self.base_url}/api/streams",
-                params={"name": stream_id},
-            )
-        except Exception as e:
-            logger.error("Failed to remove stream %s: %s", stream_id, e)
+    async def _wait_ready(self, timeout: float = 15.0):
+        elapsed = 0.0
+        interval = 0.3
+        while elapsed < timeout:
+            try:
+                resp = await self._client.get(f"{self.base_url}/api/streams")
+                if resp.status_code == 200:
+                    logger.info("go2rtc is ready (streams: %s)", list(resp.json().keys()))
+                    return
+            except httpx.ConnectError:
+                pass
+            await asyncio.sleep(interval)
+            elapsed += interval
+        raise TimeoutError("go2rtc did not become ready in time")
 
     async def get_streams_status(self) -> dict:
         try:
@@ -144,7 +121,7 @@ class Go2RTCManager:
         return {}
 
     async def webrtc_offer(self, stream_id: str, sdp_offer: str) -> httpx.Response:
-        # go2rtc API: POST /api/webrtc?src={name} with SDP offer in body
+        """Proxy WebRTC SDP offer to go2rtc."""
         return await self._client.post(
             f"{self.base_url}/api/webrtc",
             params={"src": stream_id},

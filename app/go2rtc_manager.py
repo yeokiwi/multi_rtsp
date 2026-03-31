@@ -109,18 +109,22 @@ class Go2RTCManager:
 
     async def add_stream(self, stream_id: str, url: str):
         try:
-            await self._client.put(
+            # go2rtc API: PUT /api/streams?src={name} with RTSP URL in body
+            resp = await self._client.put(
                 f"{self.base_url}/api/streams",
-                params={"name": stream_id, "src": url},
+                params={"src": stream_id},
+                content=url,
             )
+            logger.info("Added stream '%s' -> %s (status: %d)", stream_id, url, resp.status_code)
         except Exception as e:
             logger.error("Failed to add stream %s: %s", stream_id, e)
 
     async def remove_stream(self, stream_id: str):
         try:
+            # go2rtc API: DELETE /api/streams?src={name}
             await self._client.delete(
                 f"{self.base_url}/api/streams",
-                params={"name": stream_id},
+                params={"src": stream_id},
             )
         except Exception as e:
             logger.error("Failed to remove stream %s: %s", stream_id, e)
@@ -135,23 +139,7 @@ class Go2RTCManager:
         return {}
 
     async def webrtc_offer(self, stream_id: str, sdp_offer: str) -> httpx.Response:
-        # go2rtc v1.9+ accepts JSON format for WebRTC signaling
-        # Try JSON first, fall back to raw SDP if it fails
-        try:
-            import json
-            json_body = json.dumps({"type": "offer", "sdp": sdp_offer})
-            resp = await self._client.post(
-                f"{self.base_url}/api/webrtc",
-                params={"src": stream_id},
-                content=json_body,
-                headers={"Content-Type": "application/json"},
-            )
-            if resp.status_code == 200:
-                return resp
-        except Exception:
-            pass
-
-        # Fallback: raw SDP format (older go2rtc versions)
+        # go2rtc API: POST /api/webrtc?src={name} with SDP offer in body
         return await self._client.post(
             f"{self.base_url}/api/webrtc",
             params={"src": stream_id},
